@@ -180,16 +180,16 @@ graph TD
     PUC -->|GetTopic| TR
     PUC -->|StoreMessage| MR
     PUC -->|ListSubscriptionsByTopic| SR
-    PUC -->|"Enqueue → notify\n(async goroutine)"| PMR
+    PUC -->|"Enqueue async fan-out"| PMR
     PMR --- Q
 
-    SUC -->|"GetTopic\n(on CreateSubscription)"| TR
-    SUC -->|"Create / Get / Update\nDelete / List"| SR
-    SUC -->|"Init / Drop / Pull\nAck / ModifyDeadline"| PMR
-    SUC -->|"StoreMessage\n(dead-letter path)"| MR
+    SUC -->|GetTopic| TR
+    SUC -->|"Create / Get / Update / Delete / List"| SR
+    SUC -->|"Init / Drop / Pull / Ack / ModifyDeadline"| PMR
+    SUC -->|StoreMessage dead-letter| MR
     SUC -->|start + register consumer| DISP
 
-    DISP -->|GetSubscription\n(reads ack deadline)| SR
+    DISP -->|"GetSubscription (ack deadline)"| SR
     DISP -->|Watch notify + Pull| PMR
     DISP -->|push batch| CC["Consumer Channel\n(buffered × 16)"]
     CC --> SH
