@@ -164,6 +164,7 @@ graph TD
 
         subgraph Store["In-Memory Storage"]
             TR[TopicRepository]
+            SR[SubscriptionRepository]
             MR[MessageRepository]
             PMR[PendingMessageRepository]
             Q["SubscriptionQueue\nbuffered chan  +  in-flight map"]
@@ -176,19 +177,24 @@ graph TD
     PH --> PUC
     SH --> SUC
 
+    PUC -->|GetTopic| TR
     PUC -->|StoreMessage| MR
+    PUC -->|ListSubscriptionsByTopic| SR
     PUC -->|"Enqueue → notify\n(async goroutine)"| PMR
     PMR --- Q
 
-    SUC -->|register consumer channel| DISP
-    DISP -->|Watch notify| Q
-    DISP -->|"Pull + lease\n(marks in-flight)"| PMR
+    SUC -->|"GetTopic\n(on CreateSubscription)"| TR
+    SUC -->|"Create / Get / Update\nDelete / List"| SR
+    SUC -->|"Init / Drop / Pull\nAck / ModifyDeadline"| PMR
+    SUC -->|"StoreMessage\n(dead-letter path)"| MR
+    SUC -->|start + register consumer| DISP
+
+    DISP -->|GetSubscription\n(reads ack deadline)| SR
+    DISP -->|Watch notify + Pull| PMR
     DISP -->|push batch| CC["Consumer Channel\n(buffered × 16)"]
     CC --> SH
     SH -->|stream messages| Client
-
     Client -->|Ack / ModifyAckDeadline| SH
-    SH -->|AcknowledgeByAckID\nUpdateDeadline| PMR
 ```
 
 **Publish path** — the `PublisherUsecase` stores the raw message and fans it out to all matching subscriptions in a background goroutine. Each subscription's `SubscriptionQueue` receives the pending messages and fires a `notify` signal.
