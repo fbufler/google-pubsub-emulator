@@ -17,9 +17,10 @@ type subscriptionDispatcher struct {
 	subName       types.FQDN
 	subscriptions *repositories.SubscriptionRepository
 	pendingMsgs   *repositories.PendingMessageRepository
+	deliveryDelay time.Duration
 
-	mu       sync.Mutex
-	nextIdx  int
+	mu        sync.Mutex
+	nextIdx   int
 	consumers []chan<- []*entities.PendingMessage
 
 	trigger chan struct{} // fired by register() so existing messages are drained immediately
@@ -29,11 +30,13 @@ func newSubscriptionDispatcher(
 	subName types.FQDN,
 	subscriptions *repositories.SubscriptionRepository,
 	pendingMsgs *repositories.PendingMessageRepository,
+	deliveryDelay time.Duration,
 ) *subscriptionDispatcher {
 	return &subscriptionDispatcher{
 		subName:       subName,
 		subscriptions: subscriptions,
 		pendingMsgs:   pendingMsgs,
+		deliveryDelay: deliveryDelay,
 		trigger:       make(chan struct{}, 1),
 	}
 }
@@ -87,8 +90,14 @@ func (d *subscriptionDispatcher) run(ctx context.Context) {
 			d.mu.Unlock()
 			return
 		case <-notify:
+			if d.deliveryDelay > 0 {
+				time.Sleep(d.deliveryDelay)
+			}
 			d.deliver(ctx)
 		case <-d.trigger:
+			if d.deliveryDelay > 0 {
+				time.Sleep(d.deliveryDelay)
+			}
 			d.deliver(ctx)
 		case <-requeue.C:
 			d.deliver(ctx)
