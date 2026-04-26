@@ -2,7 +2,6 @@ package usecases
 
 import (
 	"context"
-	"sync"
 	"time"
 
 	"github.com/fbufler/google-pubsub/internal/core/entities"
@@ -62,44 +61,28 @@ func (pub *PublisherUsecase) Publish(ctx context.Context, topicName types.FQDN, 
 		return nil, fromPersistence(err)
 	}
 
-	var (
-		mu      sync.Mutex
-		fanErr  error
-		wg      sync.WaitGroup
-	)
-	for _, sub := range subs {
-		wg.Add(1)
-		go func(sub *entities.Subscription) {
-			defer wg.Done()
-			pendingMsgs := make([]*entities.PendingMessage, 0, len(msgs))
-			for _, m := range msgs {
-				if !matchesFilter(sub.Filter(), m.Attributes()) {
-					continue
-				}
-				pm, err := newPendingMessage(m, sub.Name())
-				if err != nil {
-					mu.Lock()
-					if fanErr == nil {
-						fanErr = err
+	// Fan-out runs in a separate goroutine so that the Publish response is sent
+	// to the client before any subscription is notified of new messages.
+	// This matches real PubSub semantics: Publish acknowledges once the message
+	// is stored; delivery to subscribers is always asynchronous.
+	go func() {
+		for _, sub := range subs {
+			go func(sub *entities.Subscription) {
+				pendingMsgs := make([]*entities.PendingMessage, 0, len(msgs))
+				for _, m := range msgs {
+					if !matchesFilter(sub.Filter(), m.Attributes()) {
+						continue
 					}
-					mu.Unlock()
-					return
+					pm, err := newPendingMessage(m, sub.Name())
+					if err != nil {
+						return
+					}
+					pendingMsgs = append(pendingMsgs, pm)
 				}
-				pendingMsgs = append(pendingMsgs, pm)
-			}
-			if err := pub.pendingMessages.Enqueue(ctx, sub.Name(), pendingMsgs); err != nil {
-				mu.Lock()
-				if fanErr == nil {
-					fanErr = fromPersistence(err)
-				}
-				mu.Unlock()
-			}
-		}(sub)
-	}
-	wg.Wait()
-	if fanErr != nil {
-		return nil, fanErr
-	}
+				pub.pendingMessages.Enqueue(ctx, sub.Name(), pendingMsgs) //nolint:errcheck
+			}(sub)
+		}
+	}()
 
 	return ids, nil
 }

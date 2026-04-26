@@ -58,7 +58,7 @@ func main() {
 	// --- Use cases ---
 	topicUC := usecases.NewTopicUsecase(topics, subscriptions, snapshots)
 	pubUC := usecases.NewPublisher(topics, messages, subscriptions, pendingMessages)
-	subUC := usecases.NewSubscriber(ctx, topics, subscriptions, pendingMessages, messages)
+	subUC := usecases.NewSubscriber(ctx, topics, subscriptions, pendingMessages, messages, cfg.DeliveryDelay)
 	snapUC := usecases.NewSnapshotUsecase(snapshots, subscriptions, messages, pendingMessages)
 
 	// --- Optional init config: pre-create topics and subscriptions on startup ---

@@ -1,6 +1,9 @@
 package bootstrap
 
-import "os"
+import (
+	"os"
+	"time"
+)
 
 // ServerConfig holds all runtime configuration derived from environment variables.
 type ServerConfig struct {
@@ -15,6 +18,10 @@ type ServerConfig struct {
 	LogLevel string
 	// LogFormat selects the log output format (LOG_FORMAT: text|json, default "text").
 	LogFormat string
+	// DeliveryDelay is an artificial delay applied before delivering newly published
+	// messages to subscribers (PUBSUB_DELIVERY_DELAY, e.g. "50ms"). Zero by default.
+	// Useful when testing against clients that assume real PubSub network latency.
+	DeliveryDelay time.Duration
 }
 
 // LoadServerConfig reads ServerConfig from environment variables.
@@ -25,7 +32,19 @@ func LoadServerConfig() *ServerConfig {
 		OTELEndpoint:   os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
 		LogLevel:       getEnv("LOG_LEVEL", "info"),
 		LogFormat:      getEnv("LOG_FORMAT", "json"),
+		DeliveryDelay:  parseDuration(os.Getenv("PUBSUB_DELIVERY_DELAY")),
 	}
+}
+
+func parseDuration(s string) time.Duration {
+	if s == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0
+	}
+	return d
 }
 
 func getEnv(key, fallback string) string {

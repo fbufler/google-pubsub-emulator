@@ -21,6 +21,7 @@ type SubscriberUsecase struct {
 	subscriptions   *repositories.SubscriptionRepository
 	pendingMessages *repositories.PendingMessageRepository
 	messages        *repositories.MessageRepository
+	deliveryDelay   time.Duration
 	dispatchers     sync.Map // types.FQDN → *dispatcherEntry
 }
 
@@ -30,6 +31,7 @@ func NewSubscriber(
 	subscriptions *repositories.SubscriptionRepository,
 	pendingMessages *repositories.PendingMessageRepository,
 	messages *repositories.MessageRepository,
+	deliveryDelay time.Duration,
 ) *SubscriberUsecase {
 	return &SubscriberUsecase{
 		ctx:             ctx,
@@ -37,6 +39,7 @@ func NewSubscriber(
 		subscriptions:   subscriptions,
 		pendingMessages: pendingMessages,
 		messages:        messages,
+		deliveryDelay:   deliveryDelay,
 	}
 }
 
@@ -57,7 +60,7 @@ func (s *SubscriberUsecase) CreateSubscription(ctx context.Context, sub *entitie
 
 func (s *SubscriberUsecase) startDispatcher(subName types.FQDN) {
 	dispCtx, cancel := context.WithCancel(s.ctx)
-	d := newSubscriptionDispatcher(subName, s.subscriptions, s.pendingMessages)
+	d := newSubscriptionDispatcher(subName, s.subscriptions, s.pendingMessages, s.deliveryDelay)
 	s.dispatchers.Store(subName, &dispatcherEntry{dispatcher: d, cancel: cancel})
 	go d.run(dispCtx)
 }
