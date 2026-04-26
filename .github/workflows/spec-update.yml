@@ -106,6 +106,10 @@ jobs:
                   \`\`\`
                   </details>"
 
+            - name: Delete branch if release was not created
+              if: steps.diff.outputs.changed == 'true' && failure()
+              run: git push origin --delete "$BRANCH"
+
             - name: No changes detected
               if: steps.diff.outputs.changed == 'false'
               run: echo "pubsub spec is up to date — nothing to do."
