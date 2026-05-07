@@ -208,6 +208,9 @@ func NewPublish(_ context.Context, uc *usecases.PublisherUsecase) func(context.C
 			return nil, toConnectError(err)
 		}
 		slog.Debug("messages published", "topic", msg.Topic, "count", len(ids))
+		for i, m := range msgs {
+			slog.Debug("message published", "topic", msg.Topic, "id", ids[i], "data", string(m.Data()), "attributes", m.Attributes(), "orderingKey", m.OrderingKey())
+		}
 
 		return payload.NewPublishResponse(ctx, &pubsubpb.PublishResponse{MessageIds: ids}).Encode(), nil
 	}

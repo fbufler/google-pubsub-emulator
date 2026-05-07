@@ -62,8 +62,11 @@ tasks:
         desc: Run integration tests against our emulator
         deps:
             - docker:build
+        env:
+            LOG_LEVEL: debug
         cmds:
             - docker compose up -d our-emulator
+            - defer: docker compose logs our-emulator
             - defer: docker compose stop our-emulator
             - PUBSUB_EMULATOR_HOST=localhost:8086 PUBSUB_PROJECT_ID=test-project go test ./test/integration/... -v -tags integration -timeout 120s -count=1
 
