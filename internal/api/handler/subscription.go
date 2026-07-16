@@ -192,6 +192,9 @@ func NewPull(_ context.Context, uc *usecases.SubscriberUsecase) func(context.Con
 			resp.ReceivedMessages = append(resp.ReceivedMessages, mapper.PendingMessageToProto(pm))
 		}
 		slog.Debug("messages pulled", "subscription", msg.Subscription, "count", len(resp.ReceivedMessages))
+		for _, pm := range msgs {
+			slog.Debug("message pulled", "subscription", msg.Subscription, "id", pm.Message().ID(), "data", string(pm.Message().Data()), "attributes", pm.Message().Attributes(), "orderingKey", pm.Message().OrderingKey(), "ackID", pm.AckID())
+		}
 
 		return payload.NewPullResponse(ctx, resp).Encode(), nil
 	}
@@ -330,6 +333,7 @@ func sendMessages(stream *connect.BidiStream[pubsubpb.StreamingPullRequest, pubs
 	resp := &pubsubpb.StreamingPullResponse{}
 	for _, pm := range msgs {
 		resp.ReceivedMessages = append(resp.ReceivedMessages, mapper.PendingMessageToProto(pm))
+		slog.Debug("message streamed", "id", pm.Message().ID(), "data", string(pm.Message().Data()), "attributes", pm.Message().Attributes(), "orderingKey", pm.Message().OrderingKey(), "ackID", pm.AckID())
 	}
 	return stream.Send(resp)
 }

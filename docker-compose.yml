@@ -30,6 +30,7 @@ services:
       - "8086:8085"
     environment:
       - PUBSUB_PROJECT_ID=test-project
+      - LOG_LEVEL=${LOG_LEVEL:-info}
       # Set OTEL_EXPORTER_OTLP_ENDPOINT on the host to enable tracing.
       # When using `task trace:up` this is automatically set to the Jaeger service.
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
