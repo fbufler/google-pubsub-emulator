@@ -2,6 +2,7 @@ package usecases
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"time"
 
@@ -22,6 +23,7 @@ type subscriptionDispatcher struct {
 	mu        sync.Mutex
 	nextIdx   int
 	consumers []chan<- []*entities.PendingMessage
+	affinity  map[string]chan<- []*entities.PendingMessage // ordering key → pinned consumer
 
 	trigger chan struct{} // fired by register() so existing messages are drained immediately
 }
@@ -37,6 +39,7 @@ func newSubscriptionDispatcher(
 		subscriptions: subscriptions,
 		pendingMsgs:   pendingMsgs,
 		deliveryDelay: deliveryDelay,
+		affinity:      make(map[string]chan<- []*entities.PendingMessage),
 		trigger:       make(chan struct{}, 1),
 	}
 }
@@ -60,7 +63,14 @@ func (d *subscriptionDispatcher) register(ch chan<- []*entities.PendingMessage) 
 		for i, c := range d.consumers {
 			if c == ch {
 				d.consumers = append(d.consumers[:i], d.consumers[i+1:]...)
-				return
+				break
+			}
+		}
+		// Drop ordering-key affinities pinned to the removed consumer so their
+		// keys are reassigned to a live stream on the next delivery.
+		for key, c := range d.affinity {
+			if c == ch {
+				delete(d.affinity, key)
 			}
 		}
 	}
@@ -105,9 +115,12 @@ func (d *subscriptionDispatcher) run(ctx context.Context) {
 	}
 }
 
-// deliver pulls all available messages and pushes them to one registered consumer
-// using round-robin. If all consumer channels are full the messages remain
-// in-flight and will be requeued when their ack deadline expires.
+// deliver pulls all available messages and pushes them to registered consumers.
+// Messages that carry an ordering key are pinned to a single consumer (stream) so
+// their relative order is preserved even when a subscriber reads its streams
+// independently; unordered messages are distributed round-robin. If a target
+// consumer's channel is full the messages remain in-flight and will be requeued
+// when their ack deadline expires.
 func (d *subscriptionDispatcher) deliver(ctx context.Context) {
 	d.mu.Lock()
 	n := len(d.consumers)
@@ -132,15 +145,45 @@ func (d *subscriptionDispatcher) deliver(ctx context.Context) {
 		// Messages are now in-flight; they'll be requeued at ack deadline.
 		return
 	}
-	// Try each consumer once (non-blocking), round-robin starting from nextIdx.
-	for i := 0; i < len(d.consumers); i++ {
-		idx := d.nextIdx % len(d.consumers)
-		d.nextIdx++
+
+	// Group each message under the consumer that should receive it: ordering-key
+	// messages go to their pinned consumer, unordered ones round-robin.
+	batches := make(map[chan<- []*entities.PendingMessage][]*entities.PendingMessage)
+	for _, m := range msgs {
+		var target chan<- []*entities.PendingMessage
+		if key := m.Message().OrderingKey(); key != "" {
+			target = d.consumerForKey(key)
+		} else {
+			target = d.nextConsumer()
+		}
+		batches[target] = append(batches[target], m)
+	}
+
+	for target, batch := range batches {
 		select {
-		case d.consumers[idx] <- msgs:
-			return
+		case target <- batch:
 		default:
+			// Consumer channel full; these messages remain in-flight and will be
+			// requeued when their ack deadline expires.
 		}
 	}
-	// All consumer channels full; messages remain in-flight.
+}
+
+// nextConsumer returns the next consumer in round-robin order. Caller must hold d.mu.
+func (d *subscriptionDispatcher) nextConsumer() chan<- []*entities.PendingMessage {
+	ch := d.consumers[d.nextIdx%len(d.consumers)]
+	d.nextIdx++
+	return ch
+}
+
+// consumerForKey returns the consumer pinned to an ordering key, assigning a new
+// one round-robin when the key is unseen or its previous consumer has gone away.
+// Caller must hold d.mu.
+func (d *subscriptionDispatcher) consumerForKey(key string) chan<- []*entities.PendingMessage {
+	if ch, ok := d.affinity[key]; ok && slices.Contains(d.consumers, ch) {
+		return ch
+	}
+	ch := d.nextConsumer()
+	d.affinity[key] = ch
+	return ch
 }
